@@ -1,68 +1,263 @@
-# To run this code you need to install the following dependencies:
-# pip install google-genai
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlanNotify - Offline Timetable</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen pb-12">
 
-import os
-from google import genai
-from google.genai import types
+    <!-- Onboarding Modal -->
+    <div id="onboardingModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 hidden">
+        <div class="glass p-8 rounded-2xl max-w-md w-full mx-4 shadow-2xl border border-indigo-500/30">
+            <h2 class="text-2xl font-bold mb-2">Welcome!</h2>
+            <p class="text-slate-400 mb-6">Let's personalize your schedule. What should we call you?</p>
+            <input type="text" id="userNameInput" placeholder="Enter your name" 
+                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4">
+            <button onclick="saveInitialName()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg transition-all">
+                Get Started
+            </button>
+        </div>
+    </div>
 
+    <!-- Main Content -->
+    <div class="max-w-4xl mx-auto px-4 pt-8">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Hello, <span id="displayName" class="text-indigo-400">User</span>!</h1>
+                <p class="text-slate-400">Manage your weekly routine</p>
+            </div>
+            <button id="notifBtn" onclick="requestNotificationPermission()" 
+                class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-full border border-slate-700 transition-all">
+                <i data-lucide="bell" class="w-4 h-4"></i>
+                <span id="notifBtnText">Enable Notifications</span>
+            </button>
+        </header>
 
-def generate():
-    client = genai.Client(
-        api_key=os.environ.get("GEMINI_API_KEY"),
-    )
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Form Section -->
+            <div class="lg:col-span-1">
+                <div class="glass p-6 rounded-2xl sticky top-8">
+                    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="plus-circle" class="text-indigo-400"></i> Add Plan
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Day of Week</label>
+                            <select id="planDay" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-indigo-500 outline-none">
+                                <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+                                <option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Plan Name</label>
+                            <input type="text" id="planName" placeholder="e.g. Gym Session" 
+                                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Start Time</label>
+                            <input type="time" id="planTime" 
+                                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-indigo-500 outline-none">
+                        </div>
+                        <button onclick="addPlan()" class="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-lg font-semibold mt-2 transition-all">
+                            Add to Timetable
+                        </button>
+                    </div>
+                </div>
+            </div>
 
-    model = "gemini-3-flash-preview"
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text="""INSERT_INPUT_HERE"""),
-            ],
-        ),
-    ]
-    tools = [
-        types.Tool(code_execution=types.ToolCodeExecution),
-        types.Tool(googleSearch=types.GoogleSearch(
-        )),
-    ]
-    generate_content_config = types.GenerateContentConfig(
-        thinking_config=types.ThinkingConfig(
-            thinking_level="HIGH",
-        ),
-        tools=tools,
-        system_instruction=[
-            types.Part.from_text(text="""use local storage for offline mode sync with cloud when onlineAct as an expert frontend developer. Based on my instructions, write a single-file web application (index.html) that functions completely offline using localStorage and the Web Notification API. 
+            <!-- List Section -->
+            <div class="lg:col-span-2">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">Your Weekly Schedule</h3>
+                    <span id="planCount" class="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400">0 Plans</span>
+                </div>
+                <div id="plansList" class="space-y-3 custom-scrollbar max-h-[70vh] overflow-y-auto pr-2">
+                    <!-- Items injected here -->
+                    <div class="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-2xl">
+                        No plans added yet. Start by filling the form!
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-Requirements to include in the code:
-1. UI/Style: A clean, modern, dark-themed user interface (using Tailwind CSS via CDN is fine).
-2. Onboarding: A simple text input that asks for the user's name and saves it to localStorage.
-3. Timetable Input: Form fields to select a Day of the Week, a Plan Name, and a Start Time. A button to \"Add Plan\".
-4. Timetable List: A visual list showing all saved plans with a \"Delete\" button next to each.
-5. Local Storage: Automatically save and load the timetable to/from localStorage so it works offline.
-6. Notification Engine: A background JavaScript setInterval loop running every 30 seconds. It checks the current day and time against the timetable. If a match is found, trigger a native browser notification that reads exactly: \"{Username}, your plan for today is {Plan Name}.\"
-7. Permission Button: Include a clear button at the top to \"Enable Notifications\" so the browser allows the alerts.
+    <script>
+        // --- State Management ---
+        let appData = {
+            username: localStorage.getItem('username') || '',
+            plans: JSON.parse(localStorage.getItem('timetable')) || []
+        };
 
-Provide the complete, unbroken, single-file HTML code."""),
-        ],
-    )
+        // Track notified plans to prevent multiple alerts per minute
+        let lastNotifiedMinute = "";
 
-    for chunk in client.models.generate_content_stream(
-        model=model,
-        contents=contents,
-        config=generate_content_config,
-    ):
-        if (
-            chunk.parts is None
-        ):
-            continue
-        if chunk.parts[0].text:
-            print(chunk.parts[0].text, end="")
-        if chunk.parts[0].executable_code:
-            print(chunk.parts[0].executable_code)
-        if chunk.parts[0].code_execution_result:
-            print(chunk.parts[0].code_execution_result)
+        // --- Initialization ---
+        function init() {
+            if (!appData.username) {
+                document.getElementById('onboardingModal').classList.remove('hidden');
+            } else {
+                document.getElementById('displayName').innerText = appData.username;
+                renderPlans();
+            }
+            updateNotifButtonUI();
+            lucide.createIcons();
+            
+            // Start Notification Engine
+            setInterval(checkNotifications, 30000); // Check every 30 seconds
+        }
 
-if __name__ == "__main__":
-    generate()
+        function saveInitialName() {
+            const nameInput = document.getElementById('userNameInput').value.trim();
+            if (nameInput) {
+                appData.username = nameInput;
+                localStorage.setItem('username', nameInput);
+                document.getElementById('displayName').innerText = nameInput;
+                document.getElementById('onboardingModal').classList.add('hidden');
+            }
+        }
 
+        // --- Timetable Logic ---
+        function addPlan() {
+            const day = document.getElementById('planDay').value;
+            const name = document.getElementById('planName').value.trim();
+            const time = document.getElementById('planTime').value;
 
+            if (!name || !time) {
+                alert("Please fill in all fields");
+                return;
+            }
+
+            const newPlan = {
+                id: Date.now(),
+                day,
+                name,
+                time
+            };
+
+            appData.plans.push(newPlan);
+            saveToStorage();
+            renderPlans();
+            
+            // Reset fields
+            document.getElementById('planName').value = '';
+            document.getElementById('planTime').value = '';
+        }
+
+        function deletePlan(id) {
+            appData.plans = appData.plans.filter(p => p.id !== id);
+            saveToStorage();
+            renderPlans();
+        }
+
+        function saveToStorage() {
+            localStorage.setItem('timetable', JSON.stringify(appData.plans));
+        }
+
+        function renderPlans() {
+            const listContainer = document.getElementById('plansList');
+            const countBadge = document.getElementById('planCount');
+            
+            countBadge.innerText = `${appData.plans.length} Plans`;
+
+            if (appData.plans.length === 0) {
+                listContainer.innerHTML = `<div class="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-2xl">No plans added yet.</div>`;
+                return;
+            }
+
+            // Sort by day and time
+            const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+            const sortedPlans = [...appData.plans].sort((a, b) => {
+                if (a.day !== b.day) return dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
+                return a.time.localeCompare(b.time);
+            });
+
+            listContainer.innerHTML = sortedPlans.map(plan => `
+                <div class="glass p-4 rounded-xl flex items-center justify-between border-l-4 border-l-indigo-500 group animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div class="flex items-center gap-4">
+                        <div class="bg-indigo-500/20 p-2 rounded-lg text-indigo-400">
+                            <i data-lucide="calendar-range" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-white">${plan.name}</h4>
+                            <div class="flex gap-3 text-xs text-slate-400 mt-1">
+                                <span class="flex items-center gap-1"><i data-lucide="calendar" class="w-3 h-3"></i> ${plan.day}</span>
+                                <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i> ${plan.time}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="deletePlan(${plan.id})" class="opacity-0 group-hover:opacity-100 p-2 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-all">
+                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            `).join('');
+            
+            lucide.createIcons();
+        }
+
+        // --- Notification Engine ---
+        function requestNotificationPermission() {
+            Notification.requestPermission().then(permission => {
+                updateNotifButtonUI();
+                if (permission === "granted") {
+                    new Notification("Perfect!", { body: "You will now receive plan reminders." });
+                }
+            });
+        }
+
+        function updateNotifButtonUI() {
+            const btn = document.getElementById('notifBtn');
+            const text = document.getElementById('notifBtnText');
+            if (Notification.permission === "granted") {
+                btn.classList.add('text-emerald-400', 'border-emerald-500/30');
+                text.innerText = "Notifications Active";
+            } else if (Notification.permission === "denied") {
+                btn.classList.add('text-red-400', 'border-red-500/30');
+                text.innerText = "Notifications Blocked";
+            }
+        }
+
+        function checkNotifications() {
+            const now = new Date();
+            const currentDay = now.toLocaleString('en-us', { weekday: 'long' });
+            const currentTime = now.getHours().toString().padStart(2, '0') + ":" + 
+                                now.getMinutes().toString().padStart(2, '0');
+            
+            // Generate a unique key for this minute to avoid repeat triggers
+            const minuteKey = `${currentDay}-${currentTime}`;
+            if (lastNotifiedMinute === minuteKey) return;
+
+            appData.plans.forEach(plan => {
+                if (plan.day === currentDay && plan.time === currentTime) {
+                    triggerNativeNotification(plan.name);
+                    lastNotifiedMinute = minuteKey;
+                }
+            });
+        }
+
+        function triggerNativeNotification(planName) {
+            if (Notification.permission === "granted") {
+                const message = `${appData.username}, your plan for today is ${planName}.`;
+                new Notification("Plan Started", {
+                    body: message,
+                    icon: "https://cdn-icons-png.flaticon.com/512/3176/3176363.png"
+                });
+            } else {
+                console.log("Notification trigger attempted, but permission not granted.");
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
